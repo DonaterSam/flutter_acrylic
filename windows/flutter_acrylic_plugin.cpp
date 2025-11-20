@@ -127,34 +127,7 @@ LRESULT CALLBACK ForceMinSizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
   }
   return CallWindowProc(g_originalWndProc, hwnd, msg, wParam, lParam);
 }
-void FlutterAcrylicPlugin::HandleMethodCall(
-    const flutter::MethodCall<flutter::EncodableValue>& call,
-    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-  if (call.method_name() == kInitialize) {
-    if (!is_initialized_) {
-      user32 = ::GetModuleHandleA("user32.dll");
-      if (user32) {
-        set_window_composition_attribute_ =
-            reinterpret_cast<SetWindowCompositionAttribute>(
-                ::GetProcAddress(user32, "SetWindowCompositionAttribute"));
-        if (set_window_composition_attribute_) {
-          HWND hwnd = GetParentWindow();
-          if (hwnd) {
-            g_originalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC,
-                (LONG_PTR)ForceMinSizeWndProc);
-          }
-          is_initialized_ = true;
-          result->Success();
-        } else
-          result->Error("-2", "FAIL_LOAD_METHOD");
-      } else
-        result->Error("-1", "FAIL_LOAD_DLL");
-    } else
-      result->Success();
-    return;
-  }
-  // ...остальная логика call.method_name()...
-}
+
 void FlutterAcrylicPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar) {
   auto channel =
@@ -196,18 +169,6 @@ HWND FlutterAcrylicPlugin::GetParentWindow() {
   return ::GetAncestor(registrar_->GetView()->GetNativeWindow(), GA_ROOT);
 }
 
-WNDPROC g_originalWndProc = nullptr;
-
-LRESULT CALLBACK ForceMinSizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-  if (msg == WM_GETMINMAXINFO) {
-    MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lParam);
-    info->ptMinTrackSize.x = 1280; // мин. ширина
-    info->ptMinTrackSize.y = 720;  // мин. высота
-    return 0;
-  }
-  return CallWindowProc(g_originalWndProc, hwnd, msg, wParam, lParam);
-}
-
 
 void FlutterAcrylicPlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
@@ -233,6 +194,7 @@ void FlutterAcrylicPlugin::HandleMethodCall(
         result->Error("-1", "FAIL_LOAD_DLL");
     } else
       result->Success();
+    return;
   } else if (call.method_name() == kSetEffect) {
     flutter::EncodableMap arguments =
         std::get<flutter::EncodableMap>(*call.arguments());
@@ -241,69 +203,49 @@ void FlutterAcrylicPlugin::HandleMethodCall(
     flutter::EncodableMap color = std::get<flutter::EncodableMap>(
         arguments[flutter::EncodableValue("color")]);
     bool dark = std::get<bool>(arguments[flutter::EncodableValue("dark")]);
-    // Set [ACCENT_DISABLED] as [ACCENT_POLICY] in
-    // [SetWindowCompositionAttribute] to apply styles properly.
+    // Set [ACCENT_DISABLED] as [ACCENT_POLICY] in [SetWindowCompositionAttribute] to apply styles properly.
     ACCENT_POLICY accent = {ACCENT_DISABLED, 2, static_cast<DWORD>(0), 0};
     WINDOWCOMPOSITIONATTRIBDATA data;
     data.Attrib = WCA_ACCENT_POLICY;
     data.pvData = &accent;
     data.cbData = sizeof(accent);
     set_window_composition_attribute_(GetParentWindow(), &data);
-    // Only on later Windows 11 versions and if effect is WindowEffect.mica,
-    // WindowEffect.acrylic or WindowEffect.tabbed, otherwise fallback to old
-    // approach.
+    // Only on later Windows 11 versions and if effect is WindowEffect.mica, WindowEffect.acrylic or WindowEffect.tabbed, otherwise fallback to old approach.
     if (GetWindowsVersion().dwBuildNumber >= 22523 && effect > 3) {
       BOOL enable = TRUE, dark_bool = dark;
       MARGINS margins = {-1};
       ::DwmExtendFrameIntoClientArea(GetParentWindow(), &margins);
-      ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &dark_bool,
-                              sizeof(dark_bool));
+      ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &dark_bool, sizeof(dark_bool));
       COLORREF COLOR_NONE = 0xFFFFFFFE;
-      ::DwmSetWindowAttribute(GetParentWindow(), CAPTION_COLOR, &COLOR_NONE,
-                              sizeof(COLOR_NONE));
+      ::DwmSetWindowAttribute(GetParentWindow(), CAPTION_COLOR, &COLOR_NONE, sizeof(COLOR_NONE));
       INT effect_value = effect == 4 ? 3 : effect == 5 ? 2 : 4;
-      ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::SYSTEMBACKDROP_TYPE, &effect_value,
-                              sizeof(enable));
+      ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::SYSTEMBACKDROP_TYPE, &effect_value, sizeof(enable));
     } else {
       if (effect == 5) {
         // Check for Windows 11.
         if (GetWindowsVersion().dwBuildNumber >= 22000) {
           BOOL enable = TRUE, dark_bool = dark;
           MARGINS margins = {-1};
-          // Mica effect requires [DwmExtendFrameIntoClientArea & "sheet of
-          // glass"
-          // effect with negative margins.
+          // Mica effect requires [DwmExtendFrameIntoClientArea & "sheet of glass" effect with negative margins.
           ::DwmExtendFrameIntoClientArea(GetParentWindow(), &margins);
-          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &dark_bool,
-                                  sizeof(dark_bool));
-          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::MICA_EFFECT, &enable,
-                                  sizeof(enable));
+          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &dark_bool, sizeof(dark_bool));
+          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::MICA_EFFECT, &enable, sizeof(enable));
         }
       } else {
-        // Restore original window style & [DwmExtendFrameIntoClientArea] margin
-        // if the last set effect was [WindowEffect.mica], since it sets
-        // negative margins to the window.
+        // Restore original window style & [DwmExtendFrameIntoClientArea] margin if the last set effect was [WindowEffect.mica], since it sets negative margins to the window.
         if (GetWindowsVersion().dwBuildNumber >= 22000 &&
                 window_effect_last_ == 5 ||
-            (GetWindowsVersion().dwBuildNumber >= 22523 &&
-             window_effect_last_ > 3)) {
+            (GetWindowsVersion().dwBuildNumber >= 22523 && window_effect_last_ > 3)) {
           BOOL enable = FALSE;
-          // Atleast one margin should be non-negative in order to show the DWM
-          // window shadow created by handling [WM_NCCALCSIZE].
-          //
-          // Matching value with bitsdojo_window.
-          // https://github.com/bitsdojo/bitsdojo_window/blob/adad0cd40be3d3e12df11d864f18a96a2d0fb4fb/bitsdojo_window_windows/windows/bitsdojo_window.cpp#L149
+          // At least one margin should be non-negative in order to show the DWM window shadow created by handling [WM_NCCALCSIZE].
           MARGINS margins = {0, 0, 1, 0};
           ::DwmExtendFrameIntoClientArea(GetParentWindow(), &margins);
-          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &enable,
-                                  sizeof(enable));
-          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::MICA_EFFECT, &enable,
-                                  sizeof(enable));
+          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::USE_IMMERSIVE_DARK_MODE, &enable, sizeof(enable));
+          ::DwmSetWindowAttribute(GetParentWindow(), WINDOWATTRIBUTE::MICA_EFFECT, &enable, sizeof(enable));
         }
         accent = {
             static_cast<ACCENT_STATE>(effect), 2,
-            static_cast<DWORD>(
-                (std::get<int>(color[flutter::EncodableValue("A")]) << 24) +
+            static_cast<DWORD>((std::get<int>(color[flutter::EncodableValue("A")]) << 24) +
                 (std::get<int>(color[flutter::EncodableValue("B")]) << 16) +
                 (std::get<int>(color[flutter::EncodableValue("G")]) << 8) +
                 (std::get<int>(color[flutter::EncodableValue("R")]))),
@@ -356,11 +298,12 @@ void FlutterAcrylicPlugin::HandleMethodCall(
   } else
     result->NotImplemented();
 }
-}
+
 
 void FlutterAcrylicPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar) {
   FlutterAcrylicPlugin::RegisterWithRegistrar(
       flutter::PluginRegistrarManager::GetInstance()
           ->GetRegistrar<flutter::PluginRegistrarWindows>(registrar));
+}
 }
