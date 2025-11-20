@@ -115,29 +115,46 @@ class FlutterAcrylicPlugin : public flutter::Plugin {
 
   RTL_OSVERSIONINFOW GetWindowsVersion();
   HWND GetParentWindow();
-  if (!is_initialized_) {
-  user32 = ::GetModuleHandleA("user32.dll");
-  if (user32) {
-    set_window_composition_attribute_ =
-        reinterpret_cast<SetWindowCompositionAttribute>(
-            ::GetProcAddress(user32, "SetWindowCompositionAttribute"));
-    if (set_window_composition_attribute_) {
-      // Вставь это после успешной инициализации:
-      HWND hwnd = GetParentWindow();
-      if (hwnd) {
-        SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ForceMinSizeWndProc));
-      }
-      is_initialized_ = true;
-      result->Success();
-    } else
-      result->Error("-2", "FAIL_LOAD_METHOD");
-  } else
-    result->Error("-1", "FAIL_LOAD_DLL");
-} else
-  result->Success();
-
 };
+WNDPROC g_originalWndProc = nullptr;
 
+LRESULT CALLBACK ForceMinSizeWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+  if (msg == WM_GETMINMAXINFO) {
+    MINMAXINFO* info = reinterpret_cast<MINMAXINFO*>(lParam);
+    info->ptMinTrackSize.x = 1280; // мин. ширина
+    info->ptMinTrackSize.y = 720;  // мин. высота
+    return 0;
+  }
+  return CallWindowProc(g_originalWndProc, hwnd, msg, wParam, lParam);
+}
+void FlutterAcrylicPlugin::HandleMethodCall(
+    const flutter::MethodCall<flutter::EncodableValue>& call,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  if (call.method_name() == kInitialize) {
+    if (!is_initialized_) {
+      user32 = ::GetModuleHandleA("user32.dll");
+      if (user32) {
+        set_window_composition_attribute_ =
+            reinterpret_cast<SetWindowCompositionAttribute>(
+                ::GetProcAddress(user32, "SetWindowCompositionAttribute"));
+        if (set_window_composition_attribute_) {
+          HWND hwnd = GetParentWindow();
+          if (hwnd) {
+            g_originalWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC,
+                (LONG_PTR)ForceMinSizeWndProc);
+          }
+          is_initialized_ = true;
+          result->Success();
+        } else
+          result->Error("-2", "FAIL_LOAD_METHOD");
+      } else
+        result->Error("-1", "FAIL_LOAD_DLL");
+    } else
+      result->Success();
+    return;
+  }
+  // ...остальная логика call.method_name()...
+}
 void FlutterAcrylicPlugin::RegisterWithRegistrar(
     flutter::PluginRegistrarWindows* registrar) {
   auto channel =
