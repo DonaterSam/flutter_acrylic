@@ -191,7 +191,7 @@ RTL_OSVERSIONINFOW FlutterAcrylicPlugin::GetWindowsVersion() {
   RTL_OSVERSIONINFOW rovi = {0};
   return rovi;
 }
-
+ 
 HWND FlutterAcrylicPlugin::GetParentWindow() {
   return ::GetAncestor(registrar_->GetView()->GetNativeWindow(), GA_ROOT);
 }
